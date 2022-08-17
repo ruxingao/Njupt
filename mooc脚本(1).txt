@@ -1,0 +1,365 @@
+// ==UserScript==
+// @name         [免费查题]中国大学慕课MOOC获取[标准答案][他人非标准答案][OJ题][答案统计]
+// @namespace    https://www.icourse163.click/
+// @version      0.6
+// @description  全网最全题库，测验作业考试标准答案保证100%，全网唯一支持查看他人答案与OJ编程题答案，网页代替脚本支持任意设备浏览100%安全避免检测，大数据统计全网答案分布
+// @author       icourse163
+// @match        *://www.icourse163.org/learn/*
+// @match        *://www.icourse163.org/spoc/learn/*
+// @grant        none
+// ==/UserScript==
+
+(function () {
+    "use strict";
+    var logS = new LogStreamService();
+    var detectEnvironService = new DetectEnvironService();
+    var util = new Util();
+    var moocService = new MoocService();
+    var panelService = new PanelService();
+    var application = new Application();
+    application.main();
+
+    function LogStreamService() {
+        this.data = "";
+        this.get = function () {
+            return this.data;
+        };
+        this.set = function (data) {
+            this.data = data;
+        };
+        this.append = function (data) {
+            this.data += data;
+        };
+        this.logToIframe = function (id) {
+            let me = this;
+            me._iframeId = id;
+            me.set = function (data) {
+                me.data = data;
+                document.getElementById(me._iframeId).innerHTML = data;
+            }
+            me.append = function (data) {
+                me.data += data;
+                document.getElementById(me._iframeId).innerHTML += data;
+            }
+        }
+    }
+
+    function DetectEnvironService() {
+        this.justiceUrl = function () {
+            var websiteAnswer = window.location.href.match(new RegExp("(https|http)://www.icourse163.org/(spoc/|)learn/.+"));
+            if (websiteAnswer == null) {
+                alert("请进入某个科目的MOOC页面后再使用此脚本!\n如:\nhttps://www.icourse163.org/learn/...\nhttps://www.icourse163.org/spoc/learn/...");
+                return false;
+            }
+            var websiteNow = websiteAnswer[0];
+            if (websiteNow.match(new RegExp("https://.+")) == null) {
+                websiteNow = websiteNow.replace(new RegExp("http:", "g"), "https:");
+                window.location.href = websiteNow;
+                return false;
+            }
+            return true;
+        }
+        this.setDetectUrlChangeEvent = function () {
+            var urlPre = window.location.href;
+            setInterval(function () {
+                let urlNow = window.location.href;
+                if (urlPre != urlNow) {
+                    logS.set("");
+                }
+                urlPre = urlNow;
+            }, 1000);
+        }
+    }
+
+    function PanelService() {
+        this.iframeInf = {
+            isPack: false,
+            width: 255,
+            height: 300,
+            packText: "点击收起",
+            unPackText: "ㅤ"
+        };
+        this.mooc_helper_window = null;
+        this.mooc_helper_pack_up_btn = null;
+        this.mooc_helper_content = null;
+        this.mooc_helper_engineDataBtn = null;
+        this.mooc_helper_data = null;
+        (function (me) {
+            me.mooc_helper_window = util.generateRandomString();
+            me.mooc_helper_pack_up_btn = util.generateRandomString();
+            me.mooc_helper_content = util.generateRandomString();
+            me.mooc_helper_engineDataBtn = util.generateRandomString();
+            me.mooc_helper_data = util.generateRandomString();
+        })(this);
+        this.setWindow = function () {
+            var divTop = window.innerHeight * 0.1;
+            var divLeft = window.innerWidth * 0.7;
+            let topDiv = document.getElementsByClassName("m-learnhead")[0];
+            let numberInstruction = '<table border="1"><tr><th>编码类型</th><th>含义</th></tr><tr><td>题库号</td><td>可获取某个试卷中题库的所有题目答案</td></tr><tr><td>试卷号</td><td>当前答题时呈现出的试卷编码</td></tr><tr><td>所有题目</td><td>当前答题时所有题目组成的列表编号</td></tr><tr><td>第i题</td><td>某个题目的题目号</td></tr></table>';
+            topDiv.innerHTML += `<div style="position:fixed; z-index:999; top:${divTop}px; left:${divLeft}px; border:1; width:${this.iframeInf.width}px; height:${this.iframeInf.height}px; background-color: rgba(221,221,221,0.5);"id="${this.mooc_helper_window}">` + `<div style="height:25px">` + `<a style="font-size: 17px;color:#212121;"id="${this.mooc_helper_pack_up_btn}">${this.iframeInf.packText}</a>` + `<br><div id=${this.mooc_helper_content}>` + `<div style="padding:8px 0px 0px 0px; font-size: 13px;"><a style="color:#03a9f4;"target="_blank"href="https://www.icourse163.click">点我前往搜题平台 www.icourse163.click</a></div>` + "推荐添加到收藏夹" + `<div style="font-size: 13px;"><a style="color:#FB7299;"target="_blank"href="https://www.icourse163.click/#/blog/1">不会用?点我查看教程</a></div>` + `<div style="font-size: 13px;"><a style="color:#3F51B5;"target="_blank"href="https://docs.qq.com/doc/DVldXS0ZiSndMakJi">网站打不开?点我查看解决办法</a></div>` + `<br><a style="color:#00c758; "id=${this.mooc_helper_engineDataBtn}>加载试卷信息</a>` + `<div style="overflow:auto;height:110px;"id=${this.mooc_helper_data}></div>` + `${numberInstruction}` + `</div>` + "</div></div>";
+        }
+        this.setEvent = function () {
+            this.setClickToPackUpEvent();
+            this.setClickToEngineInfoEvent();
+        }
+        this.setClickToPackUpEvent = function () {
+            let me = this;
+            document.getElementById(me.mooc_helper_pack_up_btn).onclick = function () {
+                if (me.iframeInf.isPack) {
+                    me.iframeInf.isPack = false;
+                    document.getElementById(me.mooc_helper_pack_up_btn).innerHTML = me.iframeInf.packText;
+                    document.getElementById(me.mooc_helper_window).style.width = me.iframeInf.width + "px";
+                    document.getElementById(me.mooc_helper_window).style.height = me.iframeInf.height + "px";
+                    document.getElementById(me.mooc_helper_content).style.display = "inline";
+                } else {
+                    me.iframeInf.isPack = true;
+                    document.getElementById(me.mooc_helper_pack_up_btn).innerHTML = me.iframeInf.unPackText;
+                    document.getElementById(me.mooc_helper_window).style.width = 20 + "px";
+                    document.getElementById(me.mooc_helper_window).style.height = 20 + "px";
+                    document.getElementById(me.mooc_helper_content).style.display = "none";
+                }
+            }
+        }
+        this.setClickToEngineInfoEvent = function () {
+            document.getElementById(this.mooc_helper_engineDataBtn).onclick = function () {
+                logS.set("");
+                let ERROR_INFO = '<span style="color:red;">请先进入可以作答的界面再点击</span>';
+                setTimeout(function () {
+                    let data = "";
+                    let paperStateObj = moocService.getPaperTypeAndId();
+                    let aid = null;
+                    if (paperStateObj.paperId != null && paperStateObj.paperType != null) {
+                        aid = moocService.getPaperAidDetail(paperStateObj);
+                    } else {
+                        logS.append(ERROR_INFO);
+                    } if (aid != null) {
+                        moocService.getQids(paperStateObj.paperId, aid, logS);
+                    } else {
+                        logS.set(ERROR_INFO);
+                    }
+                }, 100);
+            }
+        }
+    }
+
+    function MoocService() {
+        this.getPaperTypeAndId = function () {
+            var id = null;
+            let method = null;
+            var isExam = false;
+            let ids = null;
+            let isQuiz = true;
+            if ((ids = parent.location.href.match(/ojhw\?id=(.*)/))) {
+                id = ids[1];
+                method = "OJ";
+                isQuiz = false;
+            } else if ((ids = parent.location.href.match(/hw\?id=(.*)/))) {
+                id = ids[1];
+                method = "getHomeworkInfo";
+                isQuiz = false;
+            } else if ((ids = parent.location.href.match(/quiz\?id=(.*)/))) {
+                id = ids[1];
+                method = "getQuizInfo";
+                isQuiz = true;
+            } else if ((ids = parent.location.href.match(/quizscore\?id=(.*)&/))) {
+                id = ids[1];
+                method = "getQuizInfo";
+                isQuiz = true;
+            } else if ((ids = parent.location.href.match(/eid=(.*)\&id=(.*)/))) {
+                id = ids[2];
+                method = "getHomeworkInfo";
+                isExam = true;
+            }
+            return {
+                paperType: method,
+                paperId: id,
+                isExam: isExam,
+                isQuiz: isQuiz
+            }
+        }
+        this.getPaperAidDetail = function (paperObj) {
+            var aid = "";
+            if (parent.location.href.match(/quizscore\?id=(.*)&/)) {
+                aid = window.location.href.match(/aid=(.*)/)[1];
+            } else {
+                if (paperObj.isExam) {
+                    aid = this.getPaperAid(paperObj.paperId, "getQuizInfo");
+                    if (aid == null) {
+                        aid = this.getPaperAid(paperObj.paperId, "getHomeworkInfo");
+                        if (aid == null) {
+                            aid = this.getOjAid(paperObj.paperId);
+                        }
+                    }
+                } else {
+                    if (paperObj.paperType == "OJ") {
+                        aid = this.getOjAid(paperObj.paperId);
+                    } else {
+                        aid = this.getPaperAid(paperObj.paperId, paperObj.paperType);
+                    }
+                }
+            } if (aid == null) {
+                return;
+            }
+            if (aid == "0" || aid == "1" || aid == "-1") {
+                aid = null;
+            }
+            return aid;
+        }
+        this.getPaperAid = function (paperId, paperType) {
+            var aid = null;
+            util.post("https://www.icourse163.org/dwr/call/plaincall/MocQuizBean." + paperType + ".dwr", false, "callCount=1&scriptSessionId=${scriptSessionId}190&c0-scriptName=MocQuizBean" + `&c0-methodName=${paperType}` + "&c0-id=0" + `&c0-param0=string:${paperId}` + "&c0-param1=null:null&c0-param2=boolean:false&batchId=1", function (responseText) {
+                var aids = responseText.match(/{aid:(.*?),/);
+                if (aids == null) {
+                    return null;
+                }
+                aid = aids[1];
+            });
+            return aid;
+        }
+        this.getOjAid = function (paperId) {
+            var aid = null;
+            util.post("https://www.icourse163.org/dwr/call/plaincall/YocOJQuizBean.getOJPaperInfo.dwr", false, "callCount=1&scriptSessionId=${scriptSessionId}190&c0-scriptName=YocOJQuizBean&c0-methodName=getOJPaperInfo&c0-id=0" + `&c0-param0=string:${paperId}` + "&c0-param1=null:null&c0-param2=boolean:false&batchId=1", function (responseText) {
+                var aids = responseText.match(/{aid:(.*?),/);
+                if (aids == null) {
+                    return null;
+                }
+                aid = aids[1];
+            });
+            return aid;
+        }
+        this.getQids = function (tid, aid, _logS_) {
+            util.post("https://www.icourse163.org/dwr/call/plaincall/MocQuizBean.getHomeworkPaperDto.dwr", false, "callCount=1&scriptSessionId=${scriptSessionId}190&" + `c0-scriptName=MocQuizBean&c0-methodName=getHomeworkPaperDto&c0-id=1&c0-param0=number:${tid}&c0-param1=null:null&c0-param2=boolean:true&c0-param3=number:1&c0-param4=number:${aid}&batchId=1`, function (responseText) {
+                if (responseText.match(/dwr.engine._remoteHandleException/)) {
+                    _logS_.append('<span style="color:red;">题目加载失败，请过几秒再重新点击加载</span>');
+                    return;
+                }
+                responseText = responseText.replace(new RegExp("dwr.engine._remoteHandleCallback", "g"), "aaa");
+                eval(responseText);
+
+                function aaa(a, b, obj) {
+                    let arr = [];
+                    if (obj != null) {
+                        if (obj.objectiveQList != null) {
+                            for (var i = 0; i < obj.objectiveQList.length; i++) {
+                                let ele = obj.objectiveQList[i];
+                                arr.push(ele.id);
+                            }
+                        }
+                        if (obj.subjectiveQList != null) {
+                            for (var i = 0; i < obj.subjectiveQList.length; i++) {
+                                let ele = obj.subjectiveQList[i];
+                                arr.push(ele.id);
+                            }
+                        }
+                    }
+                    let text = "";
+                    let qidsAll = util.encryptId(arr);
+                    text += `所有题目 ${qidsAll}`;
+                    for (var i = 0; i < arr.length; i++) {
+                        let ele = arr[i];
+                        text += `<br>第${i + 1}题 ${util.encryptId([ele])}`;
+                    }
+                    if (arr.length > 0) {
+                        _logS_.append(text);
+                    }
+                }
+            })
+        }
+    }
+
+    function Util() {
+        this.RANDOM_ID_FIRST_DICT = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+        this.RANDOM_ID_OTHER_DICT = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_".split("");
+        this.generateRandomString = function () {
+            let name = this.RANDOM_ID_FIRST_DICT[Math.floor(Math.random() * this.RANDOM_ID_FIRST_DICT.length)];
+            let otherLength = this.RANDOM_ID_OTHER_DICT.length;
+            for (var i = 0; i < 31; i++) {
+                name += this.RANDOM_ID_OTHER_DICT[Math.floor(Math.random() * otherLength)];
+            }
+            return name;
+        }
+        this.post = function (url, async, data, successHandle) {
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", url, async);
+            xhr.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState == 4) {
+                    if (xhr.status == 200 || xhr.status == 304) {
+                        successHandle(xhr.responseText);
+                    }
+                }
+            };
+            xhr.send(data);
+        }
+        this.encryptId = function (ids) {
+            let mahs = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "k"];
+            let key = Math.floor(Math.random() * 100) + 1;
+            let keyb = textToArrayBuffer(key);
+            let keys = "";
+            let cod = "";
+            for (var i = 0; i < keyb.length; i++) {
+                let temp = keyb[i];
+                keys += mahs[Math.floor(temp / 10)];
+                keys += mahs[temp % 10];
+            }
+            cod += keys;
+            cod += "m";
+            for (var i = 0; i < ids.length; i++) {
+                let temp = "";
+                let l = ids[i];
+                l = l * key + 3;
+                let f = textToArrayBuffer(l);
+                for (var j = 0; j < f.length; j++) {
+                    temp += mahs[f[j] - 48];
+                }
+                cod += temp;
+                cod += "y";
+            }
+            ids = cod;
+
+            function textToArrayBuffer(s) {
+                s += "";
+                var i = s.length;
+                var n = 0;
+                var ba = new Array();
+                for (var j = 0; j < i;) {
+                    var c = s.codePointAt(j);
+                    if (c < 128) {
+                        ba[n++] = c;
+                        j++;
+                    } else if (c > 127 && c < 2048) {
+                        ba[n++] = (c >> 6) | 192;
+                        ba[n++] = (c & 63) | 128;
+                        j++;
+                    } else if (c > 2047 && c < 65536) {
+                        ba[n++] = (c >> 12) | 224;
+                        ba[n++] = ((c >> 6) & 63) | 128;
+                        ba[n++] = (c & 63) | 128;
+                        j++;
+                    } else {
+                        ba[n++] = (c >> 18) | 240;
+                        ba[n++] = ((c >> 12) & 63) | 128;
+                        ba[n++] = ((c >> 6) & 63) | 128;
+                        ba[n++] = (c & 63) | 128;
+                        j += 2;
+                    }
+                }
+                let arrayBuffer = new Uint8Array(ba).buffer;
+                return Array.prototype.slice.call(new Uint8Array(arrayBuffer));
+            }
+            return ids;
+        }
+    }
+
+    function Application() {
+        this.main = function () {
+            if (!detectEnvironService.justiceUrl) {
+                return;
+            }
+            panelService.setWindow();
+            logS.logToIframe(panelService.mooc_helper_data);
+            panelService.setEvent();
+            detectEnvironService.setDetectUrlChangeEvent();
+        }
+    }
+})();
